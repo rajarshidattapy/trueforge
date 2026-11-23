@@ -101,6 +101,11 @@ function createTransport(
   return new SSEClientTransport(url, { requestInit, fetch: fetchFn });
 }
 
+/** The SDK's StreamableHTTP transport emits this on onerror when it gives up reconnecting. */
+export function isReconnectionExhaustedError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('Maximum reconnection attempts');
+}
+
 export function isSessionExpiredError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -272,7 +277,16 @@ export async function connectRemoteMcp(params: {
     // Set on the client (not the transport) so the SDK's own onclose/onerror cleanup still runs; the
     // SDK invokes these from inside it. Only wired on the kept connection, so failed attempts stay quiet.
     client.onclose = () => params.onClose?.();
-    client.onerror = error => params.onError?.(error);
+    client.onerror = error => {
+      params.onError?.(error);
+      // The SDK reports exhausted SSE reconnect attempts only through onerror and never calls onclose,
+      // so close here to let the caller mark the connection dead and reconnect on the next call.
+      if (isReconnectionExhaustedError(error)) {
+        void client.close().catch(() => {
+          /* no-op */
+        });
+      }
+    };
     return buildConnection(client, transport, transportType, params.headers, requestOptions);
   }
 

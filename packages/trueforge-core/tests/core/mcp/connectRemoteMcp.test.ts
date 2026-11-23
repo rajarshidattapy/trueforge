@@ -7,6 +7,7 @@ const mockConnectSignals: Array<AbortSignal | undefined> = [];
 const mockRequestTimeouts: number[] = [];
 const mockTransportFetches: RemoteMcpFetch[] = [];
 let mockCloseCalls = 0;
+const mockClients: Array<{ onerror?: (e: Error) => void }> = [];
 // When set, connect hangs until the AbortSignal passed to it is aborted.
 let hangUntilAbort = false;
 // Per-test hook: throw to fail a given transport, return to succeed.
@@ -26,6 +27,7 @@ jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     connect(transport: MockTransport, options?: { signal?: AbortSignal }): Promise<void> {
       const type = transport.__type;
       mockConnectAttempts.push(type);
+      mockClients.push(this);
       mockConnectSignals.push(options?.signal);
       mockConnectImpl(type);
       const signal = options?.signal;
@@ -212,5 +214,30 @@ describe('connectRemoteMcp transport selection', () => {
     await new Promise(resolve => setTimeout(resolve, 40));
     expect(mockConnectSignals).toHaveLength(1);
     expect(mockConnectSignals[0]?.aborted).toBe(false);
+  });
+});
+
+describe('connectRemoteMcp reconnect exhaustion', () => {
+  beforeEach(() => {
+    mockClients.length = 0;
+    mockCloseCalls = 0;
+    hangUntilAbort = false;
+    mockConnectImpl = () => {
+      /* no-op */
+    };
+  });
+
+  it('forwards onError and closes the client when the SDK gives up reconnecting', async () => {
+    const onError = jest.fn();
+    await connectRemoteMcp({ ...baseParams(), knownTransportType: 'streamable-http', onError });
+    const client = mockClients[0];
+    if (client?.onerror === undefined) throw new Error('expected client onerror');
+
+    client.onerror(new Error('SSE stream disconnected: TypeError: terminated'));
+    expect(mockCloseCalls).toBe(0);
+
+    client.onerror(new Error('Maximum reconnection attempts (2) exceeded.'));
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(mockCloseCalls).toBe(1);
   });
 });
