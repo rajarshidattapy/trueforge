@@ -173,6 +173,7 @@ describe('capabilities routers', () => {
       data: {
         sandbox: {
           enabled: false,
+          reason: 'No sandbox provider is configured.',
           environments: { enabled: true },
         },
         skill: {
@@ -183,6 +184,32 @@ describe('capabilities routers', () => {
         web_search: { enabled: false, reason: NO_PROVIDER_REASON },
         memory: { enabled: true },
         session_sharing: { granularity: 'tenant' },
+      },
+    });
+  });
+
+  it('names missing local sandbox host packages', async () => {
+    disableOidcAuth();
+    setCachedLocalSandboxSupport({
+      supported: false,
+      platform: 'linux',
+      reason: 'Host dependencies missing.',
+      attempts: [
+        { kind: 'host', name: 'bwrap', resolved: undefined },
+        { kind: 'host', name: 'socat', resolved: '/usr/bin/socat' },
+        { kind: 'host', name: 'rg', resolved: undefined },
+        { kind: 'shell', name: 'bash', resolved: undefined },
+      ],
+    });
+    const response = await makeRouter().request('/');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: {
+        sandbox: {
+          enabled: false,
+          reason:
+            'The local sandbox needs bubblewrap and ripgrep on this host; install them, or configure a hosted sandbox provider.',
+        },
       },
     });
   });
@@ -346,7 +373,11 @@ describe('capabilities routers', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       data: {
-        sandbox: { enabled: false, environments: { enabled: true } },
+        sandbox: {
+          enabled: false,
+          reason: 'The sandbox image is still being prepared, retry shortly.',
+          environments: { enabled: true },
+        },
         skill: {
           enabled: false,
           reason: 'Skills run in a sandbox whose image is still being prepared — retry shortly.',
@@ -364,7 +395,7 @@ describe('capabilities routers', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       data: {
-        sandbox: { enabled: false, environments: { enabled: true } },
+        sandbox: { enabled: false, reason: 'No sandbox provider is configured.', environments: { enabled: true } },
         skill: { enabled: false, reason: 'Skills run in a sandbox, which is not configured.' },
       },
     });
@@ -548,6 +579,7 @@ describe('capabilities routers', () => {
         data: {
           sandbox: {
             enabled: false,
+            reason: 'No sandbox provider is configured.',
             environments: { enabled: true },
           },
           skill: {
@@ -569,6 +601,7 @@ describe('capabilities routers', () => {
         data: {
           sandbox: {
             enabled: false,
+            reason: 'No sandbox provider is configured.',
             environments: { enabled: true },
           },
           skill: {

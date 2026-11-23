@@ -13,6 +13,7 @@ const SandboxEnvironmentsCapabilitySchema = z
 const SandboxCapabilitySchema = z
   .object({
     enabled: z.boolean().describe('Whether a sandbox provider is configured for this tenant.'),
+    reason: z.string().optional().describe('Present when the sandbox is disabled. Explains why.'),
     environments: SandboxEnvironmentsCapabilitySchema,
   })
   .openapi('SandboxCapability');

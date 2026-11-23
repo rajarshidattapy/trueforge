@@ -14,7 +14,8 @@ import type { IWebSearchProviderStore } from '../db/webSearchProviderStore';
 import { hasConfiguredMemoryProvider } from '../memory/providers';
 import { getCapabilitiesRoute, type SessionSharingCapability } from '../routes/capabilityRoutes';
 import { sandboxEnvironmentsEnabled } from '../sandbox/environment/support';
-import { isLocalSandboxFallbackEnabled } from '../sandbox/localRuntime';
+import { srtHostBinaryLabel } from '../sandbox/local/core/hostRun';
+import { getCachedLocalSandboxSupport, isLocalSandboxFallbackEnabled } from '../sandbox/localRuntime';
 import type { SandboxEnvironmentVersionStatus } from '../schemas/sandboxEnvironment';
 import { hasTrueFoundrySandboxProviderConfig } from '../truefoundry/resolveTrueFoundrySandboxProviderConfig';
 import { hasConfiguredWebSearchProvider } from '../websearch/providers';
@@ -28,6 +29,24 @@ function skillDisabledReason(status: SandboxEnvironmentVersionStatus | undefined
     return 'Skills run in a sandbox whose image is still being prepared — retry shortly.';
   }
   return 'Skills run in a sandbox, which is not configured.';
+}
+
+function sandboxDisabledReason(status: SandboxEnvironmentVersionStatus | undefined): string {
+  const support = getCachedLocalSandboxSupport();
+  if (support?.supported === false) {
+    const missing = support.attempts
+      ?.filter(attempt => attempt.kind === 'host' && attempt.resolved === undefined)
+      .map(attempt => srtHostBinaryLabel(attempt.name));
+    if (missing?.length) {
+      const packages = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(', ')} and ${missing.at(-1)}`;
+      return `The local sandbox needs ${packages} on this host; install them, or configure a hosted sandbox provider.`;
+    }
+    return `${support.reason} Configure a hosted sandbox provider.`;
+  }
+  if (status === 'pending') {
+    return 'The sandbox image is still being prepared, retry shortly.';
+  }
+  return 'No sandbox provider is configured.';
 }
 
 /**
@@ -82,12 +101,11 @@ export function createCapabilitiesRouter<TTransaction>(deps: {
       (await deps.sandboxEnvironmentStore.hasUsableEnvironment({ tenant_id: requestContext.tenant_id }));
     // Only read the default row on the disabled path, where its status turns "not configured"
     // into the more useful "still being prepared".
-    const skillDisabled = sandboxEnabled
+    const defaultStatus = sandboxEnabled
       ? undefined
-      : skillDisabledReason(
-          (await deps.sandboxEnvironmentStore.getDefaultEnvironment({ tenant_id: requestContext.tenant_id }))?.version
-            .status,
-        );
+      : (await deps.sandboxEnvironmentStore.getDefaultEnvironment({ tenant_id: requestContext.tenant_id }))?.version
+          .status;
+    const skillDisabled = sandboxEnabled ? undefined : skillDisabledReason(defaultStatus);
     const [hasProvider, tenantAllowsWebSearch, tenantAllowsMemory, hasMemoryProvider] = await Promise.all([
       hasConfiguredWebSearchProvider({
         tenant_id: requestContext.tenant_id,
@@ -136,6 +154,7 @@ export function createCapabilitiesRouter<TTransaction>(deps: {
         data: {
           sandbox: {
             enabled: sandboxEnabled,
+            ...(!sandboxEnabled && { reason: sandboxDisabledReason(defaultStatus) }),
             environments: { enabled: sandboxEnvironmentsEnabled() },
           },
           skill: skillDisabled === undefined ? { enabled: true } : { enabled: false, reason: skillDisabled },
