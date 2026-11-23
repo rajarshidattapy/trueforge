@@ -1,5 +1,5 @@
 import { McpConnectionError } from '../../../src/core/errors';
-import { connectRemoteMcp, type RemoteMcpFetch } from '../../../src/core/mcp/remoteMcpClient';
+import { connectRemoteMcp, isSessionExpiredError, type RemoteMcpFetch } from '../../../src/core/mcp/remoteMcpClient';
 
 // Records every transport type client.connect() was attempted with, in order.
 const mockConnectAttempts: string[] = [];
@@ -212,5 +212,19 @@ describe('connectRemoteMcp transport selection', () => {
     await new Promise(resolve => setTimeout(resolve, 40));
     expect(mockConnectSignals).toHaveLength(1);
     expect(mockConnectSignals[0]?.aborted).toBe(false);
+  });
+});
+
+describe('isSessionExpiredError', () => {
+  it('detects expired or missing sessions', () => {
+    expect(isSessionExpiredError(new Error('Error POSTing to endpoint (HTTP 404)'))).toBe(true);
+    expect(isSessionExpiredError(new Error('Session not found'))).toBe(true);
+    expect(isSessionExpiredError(new Error('Bad Request: No valid session ID provided'))).toBe(true);
+    expect(isSessionExpiredError(Object.assign(new Error('gone'), { code: 404 }))).toBe(true);
+  });
+
+  it('ignores unrelated errors that merely mention a session', () => {
+    expect(isSessionExpiredError(new Error('MCP error -32000: user session limit reached'))).toBe(false);
+    expect(isSessionExpiredError(new Error('Could not create session summary'))).toBe(false);
   });
 });

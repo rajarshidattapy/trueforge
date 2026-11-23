@@ -101,6 +101,11 @@ function createTransport(
   return new SSEClientTransport(url, { requestInit, fetch: fetchFn });
 }
 
+// Only a message that says the session itself is gone. A bare "session" match also hit unrelated
+// errors (for example "user session limit reached"), which reset the connection and re-ran the call.
+const SESSION_EXPIRED_MESSAGE =
+  /\bsession\b[^.]{0,40}\b(not found|expired|invalid|unknown|terminated|closed)\b|\b(invalid|unknown|expired|missing|no valid)\b[^.]{0,40}\bsession\b/i;
+
 export function isSessionExpiredError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -108,7 +113,7 @@ export function isSessionExpiredError(error: unknown): boolean {
   if ('code' in error && error.code === 404) {
     return true;
   }
-  return error.message.includes('HTTP 404') || error.message.toLowerCase().includes('session');
+  return error.message.includes('HTTP 404') || SESSION_EXPIRED_MESSAGE.test(error.message);
 }
 
 function mcpConnectOutcome(error: unknown): McpConnectOutcome {
